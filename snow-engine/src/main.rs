@@ -33,6 +33,11 @@ macro_rules! log {
 }
 
 fn main() {
+    let report_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log!("awaria (panic) w wątku {}: {info}", std::thread::current().name().unwrap_or("bez nazwy"));
+        report_panic(info);
+    }));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = if let Some(i) = args.iter().position(|a| a == "--snapshot") {
         let path = args.get(i + 1).cloned().unwrap_or_else(|| "snapshot.ppm".into());
@@ -500,11 +505,11 @@ impl App {
         for screen in self.screens.iter_mut().filter(|s| s.next_due <= now + tolerance) {
             let began = Instant::now();
             match screen.frame(&mut self.renderer, &self.egl, &self.desktop, &self.settings, power, (self.light, self.night), time, now) {
-                Ok(drew) => self.stats.frame(drew, began.elapsed(), screen.simulation.sprite_count(), screen.damaged),
-                Err(error) => {
-                    log!("klatka nieudana: {error}");
-                    screen.next_due = now + Duration::from_secs(1);
+                Ok(drew) => {
+                    screen.frame_succeeded();
+                    self.stats.frame(drew, began.elapsed(), screen.simulation.sprite_count(), screen.damaged);
                 }
+                Err(error) => screen.frame_failed(&self.egl, &error, now),
             }
         }
         self.stats.report(now);

@@ -33,7 +33,7 @@ Otwórz **Szybkie ustawienia** (prawy górny róg, tam gdzie Wi-Fi i Bluetooth)
 
 - **Śnieg**, **Jesienne liście**, **Deszcz** albo **Kwiaty wiśni**: co pada. Przy zmianie podmuch zwiewa to, co leży, a potem z góry zaczyna padać nowe. Kafelek zmienia wtedy nazwę i ikonę. Deszcz rozpryskuje się na oknach i spływa kroplami po ich szybach
 - **Mieszane**: dwie pogody naraz, na przykład śnieg z deszczem. Po włączeniu zaznacza się dwie, a zaznaczenie trzeciej odznacza tę wybraną najdawniej
-- **Gromadzenie**: gdzie śnieg osiada: **Na dole ekranu** i **Na oknach** (każde z osobna można wyłączyć; deszcz i tak rozpryskuje się na dole)
+- **Gromadzenie**: gdzie śnieg osiada: **Na dole ekranu** i **Na oknach** (każde z osobna można wyłączyć; deszcz i tak rozpryskuje się na dole). Zwinięta pozycja pokazuje małe ikonki miejsc, w których śnieg osiada, albo napis *Wszędzie* / *Wyłączone*
 - **Intensywność**: suwak od 0 do 100%
 - **Zdmuchnij śnieg** (albo **Zdmuchnij liście** czy **Zdmuchnij płatki**; przy deszczu tej pozycji nie ma): podmuch wiatru zwiewa cały śnieg, także z okien na innych obszarach roboczych
 - **Opcje**: otwiera okno ustawień

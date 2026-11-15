@@ -285,6 +285,11 @@ impl Desktop {
         top.is_some_and(|w| w.x <= area.x && w.y <= area.y && w.x + w.width >= area.x + area.width && w.y + w.height >= area.y + area.height)
     }
 
+    /// Whether the window is still open: shown here or kept on another workspace.
+    pub fn exists(&self, id: u64) -> bool {
+        self.elsewhere.contains(&id) || self.windows.iter().any(|window| window.id == id)
+    }
+
     pub fn is_elsewhere(&self, id: u64) -> bool {
         self.elsewhere.contains(&id)
     }

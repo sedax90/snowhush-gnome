@@ -33,7 +33,7 @@ Open **Quick Settings** (top-right corner, where Wi-Fi and Bluetooth are) and fi
 
 - **Snow**, **Autumn leaves**, **Rain** or **Cherry blossom**: what falls. On a switch, a gust clears what is lying around, then the new kind starts falling from the top. The tile changes its name and icon. Rain splashes on the windows and runs down their glass in drops
 - **Mixed**: two weathers at once, for example snow with rain. When on, two are ticked, and ticking a third unticks the one picked longest ago
-- **Accumulation**: where snow settles: **At the bottom of the screen** and **On windows** (each can be turned off; rain still splashes at the bottom)
+- **Accumulation**: where snow settles: **At the bottom of the screen** and **On windows** (each can be turned off; rain still splashes at the bottom). Folded, the row shows small icons of where snow settles, or *Everywhere* / *Off*
 - **Intensity**: a slider from 0 to 100%
 - **Blow the snow away** (or **Blow the leaves away**, **Blow the petals away**; not shown with rain): a gust clears all the snow, including snow on windows on other workspaces
 - **Options**: opens the settings window

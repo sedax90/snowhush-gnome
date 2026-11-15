@@ -345,17 +345,28 @@ item('Śnieg').activate();
 assert.equal(toggle.title, 'Śnieg');
 const settle = item('Gromadzenie');
 const [groundItem, windowsItem] = settle.menu.items;
+const summary = () => settle.children.find(c => c.children);
+const shown = () => summary().children.map(c => c.text ?? c.gicon.file.path);
+assert.equal(settle.children.indexOf(summary()), 1, 'podsumowanie przed strzałką');
+assert.deepEqual(shown(), ['Wszędzie'], 'oba miejsca włączone: słowo');
 assert.equal(groundItem.label.text, 'Na dole ekranu');
 assert.equal(windowsItem.label.text, 'Na oknach');
 groundItem.toggle();
 assert.equal(menuSettings.values.ground, false);
+assert.deepEqual(shown(), ['/ext/icons/window-symbolic.svg'], 'jedno miejsce: jego ikonka');
 windowsItem.toggle();
 assert.equal(menuSettings.values['snow-on-windows'], false);
+assert.deepEqual(shown(), ['Wyłączone']);
 windowsItem.toggle();
 groundItem.toggle();
 menuSettings.set_boolean('behind-windows', true);
 assert.equal(windowsItem.sensitive, false, 'za oknami śnieg na okna nie spada');
+assert.deepEqual(shown(), ['/ext/icons/ground-symbolic.svg'], 'za oknami liczy się tylko dół ekranu');
 menuSettings.set_boolean('behind-windows', false);
+settle.menu.toggle();
+assert.equal(summary().visible, false, 'rozwinięte: bez podsumowania');
+settle.menu.toggle();
+assert.equal(summary().visible, true);
 item('Zdmuchnij śnieg').activate();
 assert.equal(cleared, 1);
 item('Opcje').activate();
@@ -424,7 +435,7 @@ assert.equal(item('Zdmuchnij śnieg').sensitive, false);
 
 const {TRANSLATIONS} = await import(`${EXT}/i18n.js`);
 for (const [code, list] of Object.entries(TRANSLATIONS))
-    assert.equal(list.length, 37, `pełne tłumaczenie: ${code}`);
+    assert.equal(list.length, 38, `pełne tłumaczenie: ${code}`);
 
 const {default: SnowhushExtension} = await import(`${EXT}/extension.js`);
 const extSettings = new FakeSettings({...menuSettings.values, 'calm-fps': 20, enabled: false, mode: 'autumn', mixed: false, intensity: 50});

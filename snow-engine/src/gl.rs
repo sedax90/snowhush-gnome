@@ -16,6 +16,7 @@ pub type GLintptr = isize;
 
 pub const COLOR_BUFFER_BIT: GLbitfield = 0x4000;
 pub const BLEND: GLenum = 0x0BE2;
+pub const SCISSOR_TEST: GLenum = 0x0C11;
 pub const ONE: GLenum = 1;
 pub const ONE_MINUS_SRC_ALPHA: GLenum = 0x0303;
 pub const TRIANGLE_STRIP: GLenum = 0x0005;
@@ -91,6 +92,7 @@ gl_functions! {
     Clear: fn(GLbitfield);
     Enable: fn(GLenum);
     Disable: fn(GLenum);
+    Scissor: fn(GLint, GLint, GLsizei, GLsizei);
     BlendFunc: fn(GLenum, GLenum);
     CreateShader: fn(GLenum) -> GLuint;
     ShaderSource: fn(GLuint, GLsizei, *const *const c_char, *const GLint);

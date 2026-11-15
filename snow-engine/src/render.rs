@@ -28,6 +28,7 @@ const GLASS_VERTEX: &str = include_str!("shaders/glass.vert");
 const GLASS_FRAGMENT: &str = include_str!("shaders/glass.frag");
 const DROP: &str = include_str!("shaders/drop.glsl");
 const LEAVES: &str = include_str!("shaders/leaves.glsl");
+const LITTER: &str = include_str!("shaders/litter.glsl");
 const FADE_VERTEX: &str = "#version 300 es
 void main() {
     gl_Position = vec4(float(gl_VertexID & 1) * 2.0 - 1.0, float(gl_VertexID >> 1) * 2.0 - 1.0, 0.0, 1.0);
@@ -42,7 +43,7 @@ void main() {
 ";
 
 fn included(source: &str) -> String {
-    source.replace("#include \"drop.glsl\"", DROP).replace("#include \"leaves.glsl\"", LEAVES)
+    source.replace("#include \"drop.glsl\"", DROP).replace("#include \"leaves.glsl\"", LEAVES).replace("#include \"litter.glsl\"", LITTER)
 }
 
 const SIGNS: [&[u8]; SIGN_CAPTIONS.len()] = [
@@ -114,7 +115,8 @@ pub struct Renderer {
     glass: Program,
     fade: Program,
     fields_drawable: bool,
-    fields: HashMap<(i32, i32), (GLuint, GLuint)>,
+    /// A field for each size of surface drawn while it has drops on its glass, with when it was last drawn into.
+    fields: HashMap<(i32, i32), (GLuint, GLuint, std::time::Instant)>,
     sprite_vao: GLuint,
     empty_vao: GLuint,
     sprite_buffer: GLuint,
@@ -138,9 +140,10 @@ impl Renderer {
                 &gl,
                 SPRITE_VERTEX,
                 &included(SPRITE_FRAGMENT),
-                &["viewSize", "scale", "time", "light", "shadowTint", "rim", "lantern", "pumpkins", "shake", "panel", "masks", "maskCount", "autumn", "blossom", "wilt", "glass"],
+                &["viewSize", "scale", "time", "light", "shadowTint", "rim", "lantern", "pumpkins", "shake", "panel", "masks", "maskCount", "autumn", "blossom", "wilt", "glass", "field"],
             )?;
-            let field = program(&gl, SPRITE_VERTEX, &included(FIELD_FRAGMENT), &["viewSize", "scale", "time", "lantern", "pumpkins", "shake", "panel"])?;
+            let field =
+                program(&gl, SPRITE_VERTEX, &included(FIELD_FRAGMENT), &["viewSize", "scale", "time", "lantern", "pumpkins", "shake", "panel", "field", "glass"])?;
             let glass = program(&gl, GLASS_VERTEX, GLASS_FRAGMENT, &["field", "light", "scale"])?;
             let fade = program(&gl, FADE_VERTEX, FADE_FRAGMENT, &[])?;
             let extensions = cstr((gl.GetString)(gl::EXTENSIONS));
@@ -440,15 +443,23 @@ impl Renderer {
                 }
                 (gl.BufferSubData)(gl::ARRAY_BUFFER, 0, bytes, self.sprites.as_ptr().cast());
                 (gl.BindVertexArray)(self.sprite_vao);
-                let field = if glass { self.fields.get(&size).copied() } else { None };
+                let field = if glass { self.fields.get(&size).map(|&(texture, framebuffer, _)| (texture, framebuffer)) } else { None };
+                let drops = if field.is_some() { drop_bounds(&self.sprites[..sprites], shake, view, size) } else { [0.0; 4] };
                 if let Some((_, framebuffer)) = field {
                     let p = &self.field;
                     (gl.BindFramebuffer)(gl::FRAMEBUFFER, framebuffer);
+                    // The glass shows at most 2 pixels below the drops and reads the field at most 2 pixels around
+                    // where it is drawn: drawn within 4 pixels of them, it reads only what is cleared within 8.
+                    (gl.Enable)(gl::SCISSOR_TEST);
+                    scissor(gl, drops, 8.0, size);
                     (gl.Clear)(gl::COLOR_BUFFER_BIT);
                     (gl.BlendFunc)(gl::ONE, gl::ONE);
                     (gl.UseProgram)(p.id);
                     common(p);
+                    (gl.Uniform1f)(p.at("field"), 1.0);
+                    (gl.Uniform1f)(p.at("glass"), 1.0);
                     (gl.DrawArraysInstanced)(gl::TRIANGLE_STRIP, 0, 4, sprites as i32);
+                    (gl.Disable)(gl::SCISSOR_TEST);
                     (gl.BindFramebuffer)(gl::FRAMEBUFFER, 0);
                     (gl.BlendFunc)(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
                 }
@@ -457,6 +468,7 @@ impl Renderer {
                 common(p);
                 set_masks(p, true);
                 (gl.Uniform1f)(p.at("glass"), if field.is_some() { 1.0 } else { 0.0 });
+                (gl.Uniform1f)(p.at("field"), 0.0);
                 (gl.DrawArraysInstanced)(gl::TRIANGLE_STRIP, 0, 4, sprites as i32);
                 if let Some((texture, _)) = field {
                     let p = &self.glass;
@@ -467,7 +479,10 @@ impl Renderer {
                     (gl.Uniform1i)(p.at("field"), 0);
                     (gl.Uniform4f)(p.at("light"), light[0], light[1], light[2], light[3]);
                     (gl.Uniform1f)(p.at("scale"), scale);
+                    (gl.Enable)(gl::SCISSOR_TEST);
+                    scissor(gl, drops, 4.0, size);
                     (gl.DrawArrays)(gl::TRIANGLES, 0, 3);
+                    (gl.Disable)(gl::SCISSOR_TEST);
                 }
             }
             if opacity < 1.0 {
@@ -487,14 +502,25 @@ impl Renderer {
     fn prepare_field(&mut self, glass: bool, size: (i32, i32)) {
         let gl = &self.gl;
         unsafe {
-            if !glass {
-                for (_, (texture, framebuffer)) in self.fields.drain() {
+            // A size no display has drawn at for a while, as after a resolution change, lets its field go.
+            let now = std::time::Instant::now();
+            let gone: Vec<(i32, i32)> = self
+                .fields
+                .iter()
+                .filter(|&(&made, &(_, _, used))| !glass || (made != size && now.duration_since(used).as_secs_f32() > 2.0))
+                .map(|(&made, _)| made)
+                .collect();
+            for key in gone {
+                if let Some((texture, framebuffer, _)) = self.fields.remove(&key) {
                     (gl.DeleteFramebuffers)(1, &framebuffer);
                     (gl.DeleteTextures)(1, &texture);
                 }
+            }
+            if !glass {
                 return;
             }
-            if self.fields.contains_key(&size) {
+            if let Some(field) = self.fields.get_mut(&size) {
+                field.2 = now;
                 return;
             }
             let mut texture = 0;
@@ -512,7 +538,7 @@ impl Renderer {
             let complete = (gl.CheckFramebufferStatus)(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE;
             (gl.BindFramebuffer)(gl::FRAMEBUFFER, 0);
             if complete {
-                self.fields.insert(size, (texture, framebuffer));
+                self.fields.insert(size, (texture, framebuffer, now));
             } else {
                 (gl.DeleteFramebuffers)(1, &framebuffer);
                 (gl.DeleteTextures)(1, &texture);
@@ -597,6 +623,30 @@ impl Renderer {
 fn wick(pumpkin: &PumpkinSprite) -> V2 {
     let [across, up] = PUMPKIN_CANDLE;
     pumpkin.anchor + V2::new((across - 0.5) * pumpkin.width, up * pumpkin.width * PUMPKIN_ASPECT)
+}
+
+/// Where the running drops and beads add to their field, in the surface's pixels, left, bottom, right, top: each
+/// reaches as far as the sprite shader draws it.
+fn drop_bounds(sprites: &[Sprite], shake: [f32; 2], view: [f32; 2], size: (i32, i32)) -> [f32; 4] {
+    let mut bounds = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+    for sprite in sprites.iter().filter(|sprite| sprite.rain[0] > 1.5 && sprite.rain[0] < 2.5) {
+        let speed = sprite.velocity.length();
+        let reach = sprite.size.max(1.5) * 1.1 + (speed * 0.08).min(sprite.size * 0.9) + speed * 0.024 + 1.0;
+        let (x, y) = (sprite.position.x + shake[0], sprite.position.y + shake[1]);
+        bounds = [bounds[0].min(x - reach), bounds[1].min(y - reach), bounds[2].max(x + reach), bounds[3].max(y + reach)];
+    }
+    let (across, up) = (size.0 as f32 / view[0], size.1 as f32 / view[1]);
+    [bounds[0] * across, bounds[1] * up, bounds[2] * across, bounds[3] * up]
+}
+
+/// Draws only within `bounds` and `margin` pixels around them; nothing at all when they are empty.
+unsafe fn scissor(gl: &Gl, bounds: [f32; 4], margin: f32, size: (i32, i32)) {
+    let (width, height) = (size.0 as f32, size.1 as f32);
+    let left = (bounds[0] - margin).floor().clamp(0.0, width) as i32;
+    let bottom = (bounds[1] - margin).floor().clamp(0.0, height) as i32;
+    let right = (bounds[2] + margin).ceil().clamp(0.0, width) as i32;
+    let top = (bounds[3] + margin).ceil().clamp(0.0, height) as i32;
+    unsafe { (gl.Scissor)(left, bottom, (right - left).max(0), (top - bottom).max(0)) };
 }
 
 fn check(gl: &Gl, what: &str) -> Result<(), String> {

@@ -18,6 +18,12 @@ const FRAME_WAIT: Duration = Duration::from_secs(1);
 const IDLE_FPS: u32 = 10;
 const BATTERY_CALM_FPS: u32 = 15;
 const BATTERY_FASTEST_FPS: u32 = 30;
+/// Frames that fail to draw in a row before the drawing surface is made again.
+const RENEW_AFTER: u32 = 3;
+/// How long a display waits after a frame failed to draw before trying again.
+const RETRY: Duration = Duration::from_millis(250);
+/// How often a run of failing frames is written to the log after its first.
+const FAILURE_LOG: Duration = Duration::from_secs(60);
 pub const APP_ID: &str = "org.snowhush.Overlay";
 
 pub struct Screen {
@@ -41,6 +47,9 @@ pub struct Screen {
     postponed_from: Option<Instant>,
     hidden: bool,
     must_draw: bool,
+    /// Frames that failed to draw in a row, and when that was last written to the log.
+    failures: u32,
+    failure_logged: Option<Instant>,
 }
 
 impl Screen {
@@ -79,6 +88,8 @@ impl Screen {
             postponed_from: None,
             hidden: false,
             must_draw: false,
+            failures: 0,
+            failure_logged: None,
         };
         screen.apply_sharpness(settings.sharp);
         Ok(screen)
@@ -120,8 +131,46 @@ impl Screen {
     }
 
     pub fn destroy(self, wayland: &Wayland, egl: &Egl) {
-        egl.destroy_surface(self.surface);
+        if !self.surface.is_null() {
+            egl.destroy_surface(self.surface);
+        }
         wayland.destroy_window(self.window);
+    }
+
+    /// A frame failed to draw: tries again soon, and makes the drawing surface again when it keeps failing, as it may
+    /// after the laptop wakes up. Written to the log once, then once a minute while it lasts.
+    pub fn frame_failed(&mut self, egl: &Egl, error: &str, now: Instant) {
+        self.failures += 1;
+        if self.failure_logged.is_none_or(|at| now.duration_since(at) >= FAILURE_LOG) {
+            self.failure_logged = Some(now);
+            crate::log!("monitor {}: klatka nieudana, {} z rzędu: {error}", self.monitor.index, self.failures);
+        }
+        if self.failures.is_multiple_of(RENEW_AFTER) {
+            // One window takes one surface at a time: the old one goes first.
+            if !self.surface.is_null() {
+                egl.destroy_surface(std::mem::replace(&mut self.surface, std::ptr::null_mut()));
+            }
+            match egl.create_window_surface(self.window.egl_window) {
+                Ok(surface) => {
+                    self.surface = surface;
+                    crate::log!("monitor {}: powierzchnia rysowania utworzona na nowo", self.monitor.index);
+                }
+                Err(error) => crate::log!("monitor {}: nie można utworzyć powierzchni: {error}", self.monitor.index),
+            }
+        }
+        self.damage.invalidate();
+        self.must_draw = true;
+        self.waiting_since = None;
+        self.postponed_from = None;
+        self.next_due = self.next_due.max(now + RETRY);
+    }
+
+    pub fn frame_succeeded(&mut self) {
+        if self.failures > 0 {
+            crate::log!("monitor {}: rysuje znowu po {} nieudanych klatkach", self.monitor.index, self.failures);
+            self.failures = 0;
+            self.failure_logged = None;
+        }
     }
 
     pub fn check_frame_callback(&mut self) {
@@ -158,7 +207,10 @@ impl Screen {
             self.next_due = now + Duration::from_millis(100);
             return Ok(false);
         }
-        let hidden = settings.rest_when_hidden && !settings.over_windows && desktop.top_covers(&self.monitor.area);
+        if self.surface.is_null() {
+            return Err("brak powierzchni rysowania".into());
+        }
+        let hidden =settings.rest_when_hidden && !settings.over_windows && desktop.top_covers(&self.monitor.area);
         if hidden != self.hidden {
             crate::log!("monitor {}: {}", self.monitor.index, if hidden { "śnieg zasłonięty oknem" } else { "śnieg znów widoczny" });
             self.hidden = hidden;
@@ -276,6 +328,7 @@ impl Screen {
             return;
         }
         self.windows_seen = desktop.generation;
+        self.simulation.forget_closed(|id| desktop.exists(id as u64));
         let surfaces = desktop.surfaces(&self.monitor.area, (self.simulation.width(), self.simulation.height()), Some(self.monitor.index));
         if surfaces == self.surfaces {
             return;

@@ -23,5 +23,15 @@ export class PopupSwitchMenuItem extends PopupMenuItem {
     toggle() { this.state = !this.state; this.emit('toggled', this.state); }
 }
 export class PopupSubMenuMenuItem extends PopupMenuItem {
-    _init(text) { super._init(text); this.menu = new PopupMenuSection(); this.menu.actor = {style: null}; }
+    _init(text) {
+        super._init(text);
+        this.menu = new PopupMenuSection();
+        this.menu.actor = {style: null};
+        this.menu.isOpen = false;
+        this.menu.toggle = () => { this.menu.isOpen = !this.menu.isOpen; this.menu.emit('open-state-changed', this.menu.isOpen); };
+        this._triangleBin = {};
+        this.children = [this.label, this._triangleBin];
+    }
+    insert_child_below(child, sibling) { this.children.splice(this.children.indexOf(sibling), 0, child); }
+    add_child(child) { this.children.push(child); }
 }

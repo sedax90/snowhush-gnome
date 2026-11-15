@@ -1,5 +1,7 @@
+import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import Gio from 'gi://Gio';
+import St from 'gi://St';
 
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
@@ -84,6 +86,18 @@ class SnowToggle extends QuickMenuToggle {
             this._settleItems.set(key, item);
             this._labels.push([item.label, text]);
         }
+        // Folded, the row sums up where snow settles: small icons instead of names, which would widen the menu;
+        // both on or both off stay words.
+        this._settleIcons = {
+            ground: new Gio.FileIcon({file: Gio.File.new_for_path(`${path}/icons/ground-symbolic.svg`)}),
+            'snow-on-windows': new Gio.FileIcon({file: Gio.File.new_for_path(`${path}/icons/window-symbolic.svg`)}),
+        };
+        this._settleSummary = new St.BoxLayout({style: 'spacing: 5px; margin-right: 6px;', y_align: Clutter.ActorAlign.CENTER});
+        if (this._settleMenu._triangleBin)
+            this._settleMenu.insert_child_below(this._settleSummary, this._settleMenu._triangleBin);
+        else
+            this._settleMenu.add_child(this._settleSummary);
+        this._settleMenu.menu.connectObject('open-state-changed', () => this._syncSettleSummary(), this);
         this.menu.addMenuItem(this._settleMenu);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
@@ -144,6 +158,7 @@ class SnowToggle extends QuickMenuToggle {
             item.setToggleState(this._settings.get_boolean(key));
         this._settleItems.get('snow-on-windows').setSensitive(!this._settings.get_boolean('behind-windows'));
         this._settleMenu.visible = modes.some(m => m !== 'rain');
+        this._syncSettleSummary();
         const intensity = this._settings.get_int('intensity');
         if (Math.round(this._intensity.value * 100) !== intensity)
             this._intensity.value = intensity / 100;
@@ -152,7 +167,35 @@ class SnowToggle extends QuickMenuToggle {
         this.subtitle = this.checked ? `${intensity}%` : null;
     }
 
+    // Where snow settles, as the folded row shows it: both on or off as a word, else the keys of the one on.
+    settleSummary() {
+        const on = ['ground', 'snow-on-windows'].filter(key => this._settings.get_boolean(key) &&
+            !(key === 'snow-on-windows' && this._settings.get_boolean('behind-windows')));
+        if (on.length === 2)
+            return _('Wszędzie');
+        if (on.length === 0)
+            return _('Wyłączone');
+        return on;
+    }
+
+    _syncSettleSummary() {
+        const summary = this.settleSummary();
+        const key = `${this._settleMenu.menu.isOpen ? 'open' : ''}|${summary}`;
+        if (key === this._settleShown)
+            return;
+        this._settleShown = key;
+        this._settleSummary.destroy_all_children();
+        this._settleSummary.visible = !this._settleMenu.menu.isOpen;
+        if (typeof summary === 'string') {
+            this._settleSummary.add_child(new St.Label({text: summary, style_class: 'popup-inactive-menu-item', y_align: Clutter.ActorAlign.CENTER}));
+            return;
+        }
+        for (const key of summary)
+            this._settleSummary.add_child(new St.Icon({gicon: this._settleIcons[key], icon_size: 14, style_class: 'popup-menu-icon'}));
+    }
+
     destroy() {
+        this._settleMenu.menu.disconnectObject(this);
         this._settings.disconnectObject(this);
         super.destroy();
     }
