@@ -3,7 +3,6 @@ import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
 
 const FLAG_MAXIMIZED = 1;
 const FLAG_FULLSCREEN = 2;
@@ -93,7 +92,14 @@ export class Scout {
         for (const actor of global.get_window_actors())
             this._watchWindow(actor.meta_window);
 
-        this._pointerWatch = PointerWatcher.getPointerWatcher().addWatch(POINTER_INTERVAL_MS, (x, y) => this._sendCursor(x, y));
+        // GNOME 51 nie ma już ui/pointerWatcher.js – pozycję kursora odczytujemy sami
+        this._pointerTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POINTER_INTERVAL_MS, () => {
+            if (!this._idle) {
+                const [x, y] = global.get_pointer();
+                this._sendCursor(x, y);
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
         this._watchPowerProfile();
         this._watchIdle();
         this.sendAll();
@@ -135,8 +141,10 @@ export class Scout {
         Main.layoutManager.disconnectObject(this);
         Main.overview.disconnectObject(this);
         Main.sessionMode.disconnectObject(this);
-        this._pointerWatch?.remove();
-        this._pointerWatch = null;
+        if (this._pointerTimer) {
+            GLib.source_remove(this._pointerTimer);
+            this._pointerTimer = 0;
+        }
         this._unwatchIdle();
         if (this._laterId) {
             global.compositor.get_laters().remove(this._laterId);
