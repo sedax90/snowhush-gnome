@@ -59,6 +59,12 @@ const idleMonitor = {
     remove_watch(id) { this.watches.delete(id); },
     fire(kind) { for (const [id, w] of [...this.watches]) if (w.kind === kind) { if (kind === 'active') this.watches.delete(id); w.fn(); } },
 };
+let pointer = [100, 200];
+function pointerAt(x, y) {
+    pointer = [x, y];
+    for (const fn of [...(globalThis.sources ?? new Map()).values()])
+        fn();
+}
 globalThis.global = {
     backend: {get_core_idle_monitor: () => idleMonitor},
     display,
@@ -66,7 +72,7 @@ globalThis.global = {
     workspace_manager: Object.assign(new Emitter(), {get_active_workspace: () => workspaces[activeWorkspace], get_active_workspace_index: () => activeWorkspace}),
     compositor: {get_laters: () => ({add(type, fn) { laters.push(fn); return laters.length; }, remove() {}})},
     get_window_actors: () => actors,
-    get_pointer: () => [100, 200],
+    get_pointer: () => pointer,
 };
 
 function drainWrites() {
@@ -128,13 +134,13 @@ assert.ok(lines[0].includes('2:340,120,400,300,8'));
 display.emit('grab-op-end');
 assert.ok(sent().some(l => l.startsWith('windows 0 ')), 'koniec przeciągania');
 
-globalThis.pointerCallback(500.4, 600.6);
+pointerAt(500.4, 600.6);
 assert.deepEqual(sent(), ['cursor 500 601']);
-globalThis.pointerCallback(500.2, 600.7);
+pointerAt(500.2, 600.7);
 assert.deepEqual(sent(), []);
 
 for (let i = 0; i < 50; i++)
-    globalThis.pointerCallback(i, i);
+    pointerAt(i, i);
 lines = sent();
 assert.ok(lines.length <= 3, `kursor sklejony: ${lines.length} wiadomości`);
 assert.equal(lines.at(-1), 'cursor 49 49');
@@ -228,7 +234,7 @@ globalThis.timeouts.forEach(fn => fn());
 assert.ok(globalThis.lastProcess.killed, 'silnik zabity po czasie');
 assert.equal(display.count('window-created'), 0, 'sygnały odłączone');
 assert.equal(front.count('position-changed'), 0, 'sygnały okien odłączone');
-assert.equal(globalThis.pointerCallback, null, 'kursor nieobserwowany');
+assert.equal(globalThis.sources?.size ?? 0, 0, 'kursor nieobserwowany');
 const i18n = await import(`${EXT}/i18n.js`);
 const pick = i18n.pickLanguage;
 assert.equal(pick(['pl_PL.UTF-8', 'pl', 'C']), null, 'polski = podstawa');
